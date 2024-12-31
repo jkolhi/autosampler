@@ -73,35 +73,43 @@ class AudioSamplerGUI:
                     'samplerate': device['default_samplerate']
                 })
                 self.interface_combo['values'] = [
-                    f"{d['index']}: {d['name']} (Channels: {d['channels']})" 
+                    f"{d['index']}: {d['name']}" 
                     for d in self.input_devices
                 ]
         
         if self.input_devices:
             self.interface_combo.set(self.interface_combo['values'][0])
-        self.interface_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), pady=5)
+        self.interface_combo.grid(row=0, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        self.interface_combo.bind('<<ComboboxSelected>>', self.update_channel_options)
+        
+        # Channel Selection
+        ttk.Label(main_frame, text="Channels:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.channel_var = tk.StringVar(value="Mono")
+        self.channel_combo = ttk.Combobox(main_frame, textvariable=self.channel_var, width=10)
+        self.update_channel_options()  # Initialize channel options
+        self.channel_combo.grid(row=1, column=1, sticky=tk.W, pady=5)
         
         # Output Directory Selection
-        ttk.Label(main_frame, text="Output Directory:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        ttk.Label(main_frame, text="Output Directory:").grid(row=2, column=0, sticky=tk.W, pady=5)
         self.output_dir_var = tk.StringVar(value=self.output_dir)
-        ttk.Entry(main_frame, textvariable=self.output_dir_var).grid(row=1, column=1, sticky=(tk.W, tk.E), pady=5)
-        ttk.Button(main_frame, text="Browse", command=self.browse_output_dir).grid(row=1, column=2, pady=5)
+        ttk.Entry(main_frame, textvariable=self.output_dir_var).grid(row=2, column=1, sticky=(tk.W, tk.E), pady=5)
+        ttk.Button(main_frame, text="Browse", command=self.browse_output_dir).grid(row=2, column=2, pady=5)
         
         # Threshold Setting
-        ttk.Label(main_frame, text="Threshold:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        ttk.Label(main_frame, text="Threshold:").grid(row=3, column=0, sticky=tk.W, pady=5)
         self.threshold_var = tk.DoubleVar(value=self.threshold)
         threshold_scale = ttk.Scale(main_frame, from_=0.001, to=0.1, 
                                   variable=self.threshold_var, orient=tk.HORIZONTAL)
-        threshold_scale.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=5)
+        threshold_scale.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=5)
         
         # Silence Duration Setting
-        ttk.Label(main_frame, text="Silence Duration (sec):").grid(row=3, column=0, sticky=tk.W, pady=5)
+        ttk.Label(main_frame, text="Silence Duration (sec):").grid(row=4, column=0, sticky=tk.W, pady=5)
         self.silence_timeout_var = tk.DoubleVar(value=self.silence_timeout)
         silence_scale = ttk.Scale(main_frame, from_=0.1, to=5.0,
                                 variable=self.silence_timeout_var, orient=tk.HORIZONTAL)
-        silence_scale.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=5)
+        silence_scale.grid(row=4, column=1, sticky=(tk.W, tk.E), pady=5)
         self.silence_value_label = ttk.Label(main_frame, text=f"{self.silence_timeout:.1f} sec", style='TLabel')
-        self.silence_value_label.grid(row=3, column=2, sticky=tk.W, pady=5)
+        self.silence_value_label.grid(row=4, column=2, sticky=tk.W, pady=5)
         silence_scale.configure(command=self.update_silence_label)
         
         # Level Monitor
@@ -114,11 +122,11 @@ class AudioSamplerGUI:
         
         self.canvas = FigureCanvasTkAgg(self.fig, master=main_frame)
         self.canvas.draw()
-        self.canvas.get_tk_widget().grid(row=4, column=0, columnspan=3, pady=10)
+        self.canvas.get_tk_widget().grid(row=5, column=0, columnspan=3, pady=10)
         
         # Control Buttons
         button_frame = ttk.Frame(main_frame, style='TFrame')
-        button_frame.grid(row=5, column=0, columnspan=3, pady=10)
+        button_frame.grid(row=6, column=0, columnspan=3, pady=10)
         
         self.monitor_button = ttk.Button(button_frame, text="Start Monitoring", 
                                        command=self.toggle_monitoring)
@@ -130,13 +138,24 @@ class AudioSamplerGUI:
         
         # Status bar - Using Text widget for better message display
         self.status_text = tk.Text(main_frame, height=3, width=50, bg='#1E1E1E', fg='white')
-        self.status_text.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        self.status_text.grid(row=7, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         self.status_text.insert('1.0', "Ready")
         self.status_text.config(state='disabled')
 
     def update_silence_label(self, value):
         """Update the silence duration label when the slider moves"""
         self.silence_value_label.configure(text=f"{float(value):.1f} sec")
+    
+    def update_channel_options(self, event=None):
+        """Update available channel options based on selected device"""
+        device = self.get_selected_device()
+        if device:
+            max_channels = device['channels']
+            if max_channels >= 2:
+                self.channel_combo['values'] = ["Mono", "Stereo"]
+            else:
+                self.channel_combo['values'] = ["Mono"]
+            self.channel_combo.set("Mono")  # Default to Mono
     
     def setup_level_monitor(self):
         """Setup the level monitoring display"""
@@ -190,6 +209,10 @@ class AudioSamplerGUI:
         idx = int(self.interface_var.get().split(':')[0])
         return next((d for d in self.input_devices if d['index'] == idx), None)
     
+    def get_channel_count(self):
+        """Get the number of channels based on mono/stereo selection"""
+        return 2 if self.channel_var.get() == "Stereo" else 1
+    
     def audio_callback(self, indata, frames, time, status):
         """Callback function for audio stream"""
         if status:
@@ -218,7 +241,7 @@ class AudioSamplerGUI:
                 
                 self.stream = sd.InputStream(
                     device=device['index'],
-                    channels=min(2, device['channels']),
+                    channels=self.get_channel_count(),
                     samplerate=int(device['samplerate']),
                     callback=self.audio_callback
                 )
