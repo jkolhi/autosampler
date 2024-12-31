@@ -1,4 +1,4 @@
-"""Configuration settings for the audio sampler"""
+"""Configuration settings for the audio auto sampler"""
 
 # Default audio settings
 DEFAULT_SAMPLERATE = 44100

@@ -1,4 +1,4 @@
-"""GUI implementation for the audio sampler"""
+"""GUI implementation for the audio auto sampler"""
 import tkinter as tk
 from tkinter import ttk, filedialog
 import queue
@@ -16,7 +16,7 @@ from config import *
 class AudioSamplerGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Audio Sampler")
+        self.root.title("Audio Auto Sampler")
         self.root.geometry("850x600")
         
         # Initialize queues and handlers
