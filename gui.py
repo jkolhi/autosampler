@@ -1,10 +1,10 @@
 """GUI implementation for the audio sampler"""
 import tkinter as tk
 from tkinter import ttk, filedialog
-import numpy as np
 import queue
 import threading
 import time
+import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.animation as animation
@@ -17,38 +17,43 @@ class AudioSamplerGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Audio Sampler")
-        self.root.geometry("800x600")
+        self.root.geometry("850x600")
         
-        # Initialize queues
+        # Initialize queues and handlers
         self.level_queue = queue.Queue()
-        
-        # Initialize audio handler
         self.audio_handler = AudioHandler(self.level_queue)
-        
-        # Initialize recorder
         self.recorder = AudioRecorder(self.audio_handler, self.handle_recorder_callback)
         
         # State flags
         self.recording = False
         self.running = True
-        
-        # Audio parameters
         self.output_dir = DEFAULT_OUTPUT_DIR
         
-        # Setup GUI
+        # Setup GUI elements in correct order
         self.setup_dark_theme()
-        self.setup_gui()  # This will now create status_text first
-        self.setup_level_monitor()
+        self.main_frame = self.setup_gui()  # Store main_frame reference
+        self.setup_level_monitor()          # Now main_frame exists
         
-        # Wait a bit before starting monitoring to ensure GUI is ready
-        self.root.after(500, self.update_input_options)  # This will trigger initial monitoring
-        
-        # Bind cleanup to window closing
+        # Start monitoring after delay
+        self.root.after(500, self.update_input_options)
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
     
     def on_selection_change(self, event=None):
         """Handle changes in interface, input, or mode selection"""
+        was_monitoring = False
+        
+        # Store monitoring state
+        if hasattr(self, 'monitor_var') and self.monitor_var.get():
+            was_monitoring = True
+            self.audio_handler.stop_monitoring()
+        
+        # Update device/channel selection
         self.restart_monitoring()
+        
+        # Restore monitoring if it was active
+        if was_monitoring:
+            self.audio_handler.start_monitoring()
+            self.update_status("Monitoring resumed with new selection")
     
     def start_monitoring(self):
         """Start audio monitoring"""
@@ -95,20 +100,23 @@ class AudioSamplerGUI:
         self.root.configure(bg=DARK_BG)
         
     def setup_gui(self):
-        """Setup the main GUI elements"""
         main_frame = ttk.Frame(self.root, padding="10", style='TFrame')
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
+
         # Status bar (create this first so it's available for status updates)
         self.status_text = tk.Text(main_frame, height=3, width=50, bg=DARKER_BG, fg=TEXT_COLOR)
         self.status_text.grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         self.status_text.insert('1.0', "Ready")
         self.status_text.config(state='disabled')
         
-        # Audio Interface Selection
+        # # Audio Interface Selection
         ttk.Label(main_frame, text="Audio Interface:").grid(row=0, column=0, sticky=tk.W, pady=5)
         self.interface_var = tk.StringVar()
-        self.interface_combo = ttk.Combobox(main_frame, textvariable=self.interface_var, width=50)
+        self.interface_combo = ttk.Combobox(
+            main_frame,
+            textvariable=self.interface_var,
+            state="readonly"
+        )
         
         # Get input devices
         self.input_devices = self.audio_handler.get_input_devices()
@@ -122,41 +130,48 @@ class AudioSamplerGUI:
         # Input Channel Selection
         ttk.Label(main_frame, text="Input:").grid(row=1, column=0, sticky=tk.W, pady=5)
         self.input_var = tk.StringVar()
-        self.input_combo = ttk.Combobox(main_frame, textvariable=self.input_var, width=50)
+        self.input_combo = ttk.Combobox(
+            main_frame,
+            textvariable=self.input_var,
+            state="readonly"
+        )
+        self.input_combo.config(width=COMBOBOX_WIDTH)  # Set width using config
         self.input_combo.grid(row=1, column=1, columnspan=2, sticky=tk.W, pady=5)
         self.input_combo.bind('<<ComboboxSelected>>', self.on_selection_change)
         
         # Channel Mode Selection (Mono/Stereo)
-        ttk.Label(main_frame, text="Mode:").grid(row=2, column=0, sticky=tk.W, pady=5)
         self.channel_var = tk.StringVar(value="Mono")
-        self.channel_combo = ttk.Combobox(main_frame, textvariable=self.channel_var, width=10)
+        self.channel_combo = ttk.Combobox(
+            main_frame,
+            textvariable=self.channel_var,
+            values=["Mono", "Stereo"],
+            state="readonly"
+        )
+        self.channel_combo.config(width=10)  # Fixed smaller width for mode
         self.update_input_options()  # Initialize input options
         self.channel_combo.grid(row=2, column=1, sticky=tk.W, pady=5)
         self.channel_combo.bind('<<ComboboxSelected>>', self.on_selection_change)
-        
-        # Add monitoring controls after channel mode selection
-        ttk.Label(main_frame, text="Monitoring:").grid(row=2, column=2, sticky=tk.W, pady=5)
-        self.monitor_var = tk.BooleanVar(value=False)
-        self.monitor_btn = ttk.Checkbutton(
-            main_frame, 
-            text="Enable",
-            variable=self.monitor_var,
-            command=self.toggle_monitoring
-        )
-        self.monitor_btn.grid(row=2, column=3, sticky=tk.W, pady=5)
-        
+                
         # Output Directory Selection
         ttk.Label(main_frame, text="Output Directory:").grid(row=3, column=0, sticky=tk.W, pady=5)
         self.output_dir_var = tk.StringVar(value=self.output_dir)
         ttk.Entry(main_frame, textvariable=self.output_dir_var).grid(row=3, column=1, sticky=(tk.W, tk.E), pady=5)
         ttk.Button(main_frame, text="Browse", command=self.browse_output_dir).grid(row=3, column=2, pady=5)
         
-        # Threshold Setting
-        ttk.Label(main_frame, text="Threshold:").grid(row=4, column=0, sticky=tk.W, pady=5)
+        # Threshold Setting with config limits
+        ttk.Label(main_frame, text="Threshold Level:").grid(row=4, column=0, sticky=tk.W, pady=5)
         self.threshold_var = tk.DoubleVar(value=DEFAULT_THRESHOLD)
-        threshold_scale = ttk.Scale(main_frame, from_=0.001, to=0.1, 
-                                  variable=self.threshold_var, orient=tk.HORIZONTAL)
+        threshold_scale = ttk.Scale(
+            main_frame,
+            from_=THRESHOLD_MIN,
+            to=THRESHOLD_MAX,
+            variable=self.threshold_var,
+            orient=tk.HORIZONTAL,
+            command=self.update_threshold
+        )
         threshold_scale.grid(row=4, column=1, sticky=(tk.W, tk.E), pady=5)
+        self.threshold_value_label = ttk.Label(main_frame, text=f"{DEFAULT_THRESHOLD:.3f}")
+        self.threshold_value_label.grid(row=4, column=2, sticky=tk.W, pady=5)
         
         # Silence Duration Setting
         ttk.Label(main_frame, text="Silence Duration (sec):").grid(row=5, column=0, sticky=tk.W, pady=5)
@@ -214,6 +229,8 @@ class AudioSamplerGUI:
         self.status_text.grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         self.status_text.insert('1.0', "Ready")
         self.status_text.config(state='disabled')
+        
+        return main_frame  # Return the main frame reference
     
     def update_input_options(self, event=None):
         """Update available input options based on selected device"""
@@ -277,32 +294,74 @@ class AudioSamplerGUI:
             return [0]
     
     def setup_level_monitor(self):
-        """Setup the audio level monitoring display"""
+        """Setup the level monitoring display"""
+        # Initialize level data
         self.level_data = np.zeros(LEVEL_HISTORY)
-        self.threshold_line = self.ax.axhline(y=DEFAULT_THRESHOLD, color='r', linestyle='--')
-        self.level_line, = self.ax.plot(range(len(self.level_data)), self.level_data, 'g-')
-        self.ax.set_ylim(0, 0.2)
-        self.ax.set_title('Audio Level Monitor', color=TEXT_COLOR)
         
-        self.anim = animation.FuncAnimation(
-            self.fig, self.update_plot, 
-            interval=PLOT_UPDATE_INTERVAL, blit=True, save_count=LEVEL_HISTORY
+        # Configure plot
+        self.fig = Figure(figsize=PLOT_SIZE, dpi=PLOT_DPI, facecolor=DARK_BG)
+        self.ax = self.fig.add_subplot(111)
+        self.ax.set_facecolor(DARKER_BG)
+        
+        # Set Y-axis limits and ticks
+        self.ax.set_ylim(LEVEL_MIN, LEVEL_MAX)
+        self.ax.set_yticks(np.linspace(LEVEL_MIN, LEVEL_MAX, 5))
+        
+        # Configure grid
+        self.ax.grid(True, color=TEXT_COLOR, alpha=0.2)
+        self.ax.tick_params(colors=TEXT_COLOR)
+        
+        # Style plot edges
+        for spine in self.ax.spines.values():
+            spine.set_edgecolor(TEXT_COLOR)
+        
+        # Create level line
+        self.level_line, = self.ax.plot(
+            range(LEVEL_HISTORY),
+            self.level_data,
+            color='cyan',
+            linewidth=1
         )
+        
+        # Add threshold line
+        self.threshold_line = self.ax.axhline(
+            y=DEFAULT_THRESHOLD,
+            color='red',
+            linestyle='--',
+            alpha=0.5
+        )
+        
+        # Setup canvas
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.main_frame)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().grid(row=7, column=0, columnspan=3, pady=10)
+        
+        # Start level updates
+        self.root.after(PLOT_UPDATE_INTERVAL, self.update_level_display)
     
-    def update_plot(self, frame):
-        """Update the level monitor plot"""
+    def update_level_display(self):
+        """Update the level monitor display"""
         try:
-            while not self.level_queue.empty():
-                self.level_data = np.roll(self.level_data, -1)
-                self.level_data[-1] = self.level_queue.get_nowait()
+            # Update level data from queue
+            try:
+                while not self.level_queue.empty():
+                    self.level_data = np.roll(self.level_data, -1)
+                    self.level_data[-1] = self.level_queue.get_nowait()
+                
+                # Update plot lines
+                self.level_line.set_ydata(self.level_data)
+                self.threshold_line.set_ydata([self.threshold_var.get()] * 2)
+                self.canvas.draw_idle()
+                
+            except queue.Empty:
+                pass
             
-            self.level_line.set_ydata(self.level_data)
-            self.threshold_line.set_ydata([self.threshold_var.get(), self.threshold_var.get()])
-            
-            return self.level_line, self.threshold_line
+            # Schedule next update if running
+            if self.running:
+                self.root.after(PLOT_UPDATE_INTERVAL, self.update_level_display)
+                
         except Exception as e:
-            print(f"Error updating plot: {e}")
-            return self.level_line, self.threshold_line
+            print(f"Error updating level display: {e}")
     
     def update_status(self, message):
         """Update the status display"""
@@ -378,3 +437,27 @@ class AudioSamplerGUI:
         else:
             self.audio_handler.stop_monitoring()
             self.update_status("Monitoring disabled")
+
+    def update_threshold(self, value=None):
+        """Update threshold value and display"""
+        try:
+            # Get current threshold value
+            threshold = self.threshold_var.get()
+            
+            # Update threshold label
+            self.threshold_value_label.config(text=f"{threshold:.3f}")
+            
+            # Update threshold line in plot if it exists
+            if hasattr(self, 'threshold_line'):
+                self.threshold_line.set_ydata([threshold, threshold])
+                self.canvas.draw_idle()
+            
+            # Update recorder threshold
+            if hasattr(self, 'recorder'):
+                self.recorder.threshold = threshold
+                
+            # Update status
+            self.update_status(f"Threshold set to {threshold:.3f}")
+            
+        except Exception as e:
+            print(f"Error updating threshold: {e}")

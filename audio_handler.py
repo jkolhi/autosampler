@@ -104,35 +104,44 @@ class AudioHandler:
             return None
             
         try:
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
+            # Get number of channels from first chunk
+            num_channels = chunks[0].shape[1]
             
+            # Ensure all chunks have same channel count
+            fixed_chunks = []
+            for chunk in chunks:
+                if chunk.shape[1] != num_channels:
+                    # Reshape mono to match stereo if needed
+                    if num_channels == 2 and chunk.shape[1] == 1:
+                        chunk = np.column_stack((chunk, chunk))
+                    # Take first channel if going from stereo to mono
+                    elif num_channels == 1 and chunk.shape[1] == 2:
+                        chunk = chunk[:, 0:1]
+                fixed_chunks.append(chunk)
+            
+            # Concatenate fixed chunks
+            data = np.concatenate(fixed_chunks, axis=0)
+            
+            # Save with proper format
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = os.path.join(output_dir, f"recording_{timestamp}.wav")
+            sf.write(filename, data, int(self.current_samplerate))
             
-            # Stack chunks and ensure float32 format
-            data = np.vstack(chunks)
-            data = data.astype(np.float32)
+            debug_print(f"\nSaved recording:")
+            debug_print(f"  Shape: {data.shape}")
+            debug_print(f"  Channels: {num_channels}")
+            debug_print(f"  Filename: {filename}")
             
-            print(f"\nSaving recording:")
-            print(f"  Shape: {data.shape}")
-            print(f"  Channels: {self.current_channels}")
-            print(f"  Samplerate: {self.current_samplerate}")
-            print(f"  Max value: {np.max(np.abs(data))}")
-            
-            sf.write(filename, data, self.current_samplerate)
             return filename
             
         except Exception as e:
-            print(f"Error saving: {e}")
+            debug_print(f"Error saving recording: {e}")
             return None
 
     def start_monitoring(self):
         """Start audio monitoring"""
         try:
             self.monitoring = True
-            device = sd.default.device[1]
-            
             if self.monitor_stream:
                 self.monitor_stream.stop()
                 self.monitor_stream.close()
@@ -140,24 +149,25 @@ class AudioHandler:
             # Calculate max channels needed
             max_channels = max(self.channel_map) + 1 if self.channel_map else self.current_channels
             
+            # Create duplex stream for monitoring
             self.monitor_stream = sd.Stream(
-                device=(self.device_index, device),
-                channels=max_channels,  # Request enough channels for mapping
+                device=(self.device_index, sd.default.device[1]),  # Input device, default output
+                channels=(max_channels, 2),  # Input channels, stereo output
                 callback=self.monitor_callback,
                 samplerate=self.current_samplerate
             )
             
             debug_print(f"\nStarting monitoring:")
             debug_print(f"  Input device: {self.device_index}")
-            debug_print(f"  Output device: {device}")
-            debug_print(f"  Total channels: {max_channels}")
+            debug_print(f"  Output device: {sd.default.device[1]}")
+            debug_print(f"  Channels: {max_channels}")
             debug_print(f"  Active channels: {self.channel_map}")
-            debug_print(f"  Samplerate: {self.current_samplerate}")
             
             self.monitor_stream.start()
             
         except Exception as e:
-            print(f"Error starting monitoring: {e}")
+            debug_print(f"Error starting monitoring: {e}")
+            raise
 
     def stop_monitoring(self):
         """Stop audio monitoring"""
@@ -172,24 +182,28 @@ class AudioHandler:
             print(f"Error stopping monitoring: {e}")
     
     def monitor_callback(self, indata, outdata, frames, time, status):
-        """Callback for monitoring audio"""
+        """Handle audio monitoring callback"""
         if status:
             debug_print(f"Status: {status}")
         
         try:
-            # Get mapped channels from input
+            # Get mapped channels
             if self.channel_map:
-                # Extract only the mapped channels
                 data = indata[:, self.channel_map]
             else:
                 data = indata
+                
+            # Copy to both output channels (stereo)
+            outdata[:, 0] = data[:, 0]  # Left
+            if data.shape[1] > 1:
+                outdata[:, 1] = data[:, 1]  # Right if stereo
+            else:
+                outdata[:, 1] = data[:, 0]  # Mono to both channels
             
             # Update level meter
             level = float(np.max(np.abs(data)))
+            level = min(level, LEVEL_MAX)  # Clip to max level
             self.level_queue.put_nowait(level)
-            
-            # Copy to output (first N channels where N is the number of input channels)
-            outdata[:, :data.shape[1]] = data
             
             # Store audio for recording
             self.audio_queue.put_nowait(data.copy())

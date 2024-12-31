@@ -19,6 +19,9 @@ DARK_BG = '#2E2E2E'
 DARKER_BG = '#1E1E1E'
 TEXT_COLOR = 'white'
 
+# GUI element sizes
+COMBOBOX_WIDTH = 35  # Width for dropdown menus
+
 # Plot settings
 PLOT_SIZE = (8, 2)
 PLOT_DPI = 100
