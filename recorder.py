@@ -3,6 +3,7 @@ import threading
 import time
 import queue
 import numpy as np
+from config import debug_print
 
 class AudioRecorder:
     def __init__(self, audio_handler, gui_callback):
@@ -42,7 +43,7 @@ class AudioRecorder:
                     try:
                         data = self.audio_handler.audio_queue.get(timeout=0.1)
                         level = float(np.max(np.abs(data)))
-                        print(f"Current level: {level:.3f}")
+                        debug_print(f"Current level: {level:.3f}")
                         
                         if level > self.threshold:
                             recorded_chunks = [data]
@@ -68,13 +69,14 @@ class AudioRecorder:
                         if level < self.threshold:
                             if silence_start is None:
                                 silence_start = time.time()
-                                print(f"Silence detected: {level:.3f}")
+                                debug_print(f"Silence detected: {level:.3f}")
                             else:
                                 silence_duration = time.time() - silence_start
                                 if silence_duration >= self.silence_timeout:
-                                    print(f"\nSaving recording:")
-                                    print(f"  Total chunks: {len(recorded_chunks)}")
-                                    print(f"  First chunk shape: {recorded_chunks[0].shape}")
+                                    debug_print(f"\nSaving recording:")
+                                    debug_print(f"  Silence duration: {silence_duration:.3f} seconds") 
+                                    debug_print(f"  Total chunks: {len(recorded_chunks)}")
+                                    debug_print(f"  First chunk shape: {recorded_chunks[0].shape}")
                                     filename = self.audio_handler.save_recording(
                                         recorded_chunks,
                                         self.output_dir

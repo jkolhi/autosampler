@@ -5,6 +5,7 @@ import numpy as np
 from datetime import datetime
 import os
 import queue
+from config import debug_print
 
 class AudioHandler:
     def __init__(self, level_queue):
@@ -146,12 +147,12 @@ class AudioHandler:
                 samplerate=self.current_samplerate
             )
             
-            print(f"\nStarting monitoring:")
-            print(f"  Input device: {self.device_index}")
-            print(f"  Output device: {device}")
-            print(f"  Total channels: {max_channels}")
-            print(f"  Active channels: {self.channel_map}")
-            print(f"  Samplerate: {self.current_samplerate}")
+            debug_print(f"\nStarting monitoring:")
+            debug_print(f"  Input device: {self.device_index}")
+            debug_print(f"  Output device: {device}")
+            debug_print(f"  Total channels: {max_channels}")
+            debug_print(f"  Active channels: {self.channel_map}")
+            debug_print(f"  Samplerate: {self.current_samplerate}")
             
             self.monitor_stream.start()
             
@@ -173,24 +174,28 @@ class AudioHandler:
     def monitor_callback(self, indata, outdata, frames, time, status):
         """Callback for monitoring audio"""
         if status:
-            print(f"Status: {status}")
+            debug_print(f"Status: {status}")
         
         try:
-            # Get mapped channels only
+            # Get mapped channels from input
             if self.channel_map:
+                # Extract only the mapped channels
                 data = indata[:, self.channel_map]
             else:
                 data = indata
-                
-            # Copy to output (first N channels)
-            outdata[:, :data.shape[1]] = data
             
-            # Calculate level from active channels
+            # Update level meter
             level = float(np.max(np.abs(data)))
             self.level_queue.put_nowait(level)
+            
+            # Copy to output (first N channels where N is the number of input channels)
+            outdata[:, :data.shape[1]] = data
             
             # Store audio for recording
             self.audio_queue.put_nowait(data.copy())
             
         except Exception as e:
-            print(f"Error in monitor callback: {e}")
+            debug_print(f"Error in monitor callback: {e}")
+            debug_print(f"Input shape: {indata.shape}")
+            debug_print(f"Output shape: {outdata.shape}")
+            debug_print(f"Channel map: {self.channel_map}")

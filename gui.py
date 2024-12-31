@@ -168,11 +168,11 @@ class AudioSamplerGUI:
         self.silence_value_label.grid(row=5, column=2, sticky=tk.W, pady=5)
         silence_scale.configure(command=self.update_silence_label)
         
-        # Single monitor controls section
-        monitor_frame = ttk.LabelFrame(main_frame, text="Monitor Controls", padding="5")
+        # Monitor and Record Controls Frame
+        monitor_frame = ttk.LabelFrame(main_frame, text="Controls", padding="5")
         monitor_frame.grid(row=6, column=0, columnspan=3, sticky='ew', pady=5)
         
-        # Single Monitor Enable Toggle
+        # Monitor Enable Toggle
         self.monitor_var = tk.BooleanVar(value=False)
         self.monitor_toggle = ttk.Checkbutton(
             monitor_frame,
@@ -182,7 +182,15 @@ class AudioSamplerGUI:
         )
         self.monitor_toggle.grid(row=0, column=0, padx=5)
         
-        # Move level monitor figure to row 7
+        # Record Button
+        self.record_button = ttk.Button(
+            monitor_frame, 
+            text="Start Recording",
+            command=self.toggle_recording
+        )
+        self.record_button.grid(row=0, column=1, padx=5)
+        
+        # Level Monitor
         self.fig = Figure(figsize=PLOT_SIZE, dpi=PLOT_DPI, facecolor=DARK_BG)
         self.ax = self.fig.add_subplot(111)
         self.ax.set_facecolor(DARKER_BG)
@@ -194,17 +202,16 @@ class AudioSamplerGUI:
         self.canvas.draw()
         self.canvas.get_tk_widget().grid(row=7, column=0, columnspan=3, pady=10)
         
-        # Control Buttons - Only recording button now
-        button_frame = ttk.Frame(main_frame, style='TFrame')
-        button_frame.grid(row=8, column=0, columnspan=3, pady=10)
-        
-        self.record_button = ttk.Button(button_frame, text="Start Recording", 
-                                      command=self.toggle_recording)
-        self.record_button.grid(row=0, column=0, padx=5)
-        
-        # Status bar
-        self.status_text = tk.Text(main_frame, height=3, width=50, bg=DARKER_BG, fg=TEXT_COLOR)
-        self.status_text.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        # Single Status Text Area
+        self.status_text = tk.Text(
+            main_frame, 
+            height=3, 
+            width=50, 
+            bg=DARKER_BG, 
+            fg=TEXT_COLOR,
+            wrap=tk.WORD
+        )
+        self.status_text.grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         self.status_text.insert('1.0', "Ready")
         self.status_text.config(state='disabled')
     
