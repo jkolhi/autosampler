@@ -13,6 +13,9 @@ class AudioHandler:
         self.current_samplerate = 48000  # Default, will be updated when stream is created
         self.current_channels = None
         self.channel_map = None
+        self.device_index = None  # Add device index tracking
+        self.monitoring = False
+        self.monitor_stream = None
         
     def get_input_devices(self):
         """Get list of available input devices"""
@@ -38,6 +41,8 @@ class AudioHandler:
     def create_input_stream(self, device_index, channels, samplerate, channel_map=None):
         """Create and return a new input stream"""
         try:
+            # Store device index
+            self.device_index = device_index
             print(f"\nCreating input stream:")
             print(f"  Device index: {device_index}")
             print(f"  Channel map: {channel_map}")
@@ -120,3 +125,72 @@ class AudioHandler:
         except Exception as e:
             print(f"Error saving: {e}")
             return None
+
+    def start_monitoring(self):
+        """Start audio monitoring"""
+        try:
+            self.monitoring = True
+            device = sd.default.device[1]
+            
+            if self.monitor_stream:
+                self.monitor_stream.stop()
+                self.monitor_stream.close()
+            
+            # Calculate max channels needed
+            max_channels = max(self.channel_map) + 1 if self.channel_map else self.current_channels
+            
+            self.monitor_stream = sd.Stream(
+                device=(self.device_index, device),
+                channels=max_channels,  # Request enough channels for mapping
+                callback=self.monitor_callback,
+                samplerate=self.current_samplerate
+            )
+            
+            print(f"\nStarting monitoring:")
+            print(f"  Input device: {self.device_index}")
+            print(f"  Output device: {device}")
+            print(f"  Total channels: {max_channels}")
+            print(f"  Active channels: {self.channel_map}")
+            print(f"  Samplerate: {self.current_samplerate}")
+            
+            self.monitor_stream.start()
+            
+        except Exception as e:
+            print(f"Error starting monitoring: {e}")
+
+    def stop_monitoring(self):
+        """Stop audio monitoring"""
+        try:
+            self.monitoring = False
+            if self.monitor_stream:
+                self.monitor_stream.stop()
+                self.monitor_stream.close()
+                self.monitor_stream = None
+            print("Monitoring stopped")
+        except Exception as e:
+            print(f"Error stopping monitoring: {e}")
+    
+    def monitor_callback(self, indata, outdata, frames, time, status):
+        """Callback for monitoring audio"""
+        if status:
+            print(f"Status: {status}")
+        
+        try:
+            # Get mapped channels only
+            if self.channel_map:
+                data = indata[:, self.channel_map]
+            else:
+                data = indata
+                
+            # Copy to output (first N channels)
+            outdata[:, :data.shape[1]] = data
+            
+            # Calculate level from active channels
+            level = float(np.max(np.abs(data)))
+            self.level_queue.put_nowait(level)
+            
+            # Store audio for recording
+            self.audio_queue.put_nowait(data.copy())
+            
+        except Exception as e:
+            print(f"Error in monitor callback: {e}")

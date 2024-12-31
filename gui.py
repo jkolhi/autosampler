@@ -134,6 +134,17 @@ class AudioSamplerGUI:
         self.channel_combo.grid(row=2, column=1, sticky=tk.W, pady=5)
         self.channel_combo.bind('<<ComboboxSelected>>', self.on_selection_change)
         
+        # Add monitoring controls after channel mode selection
+        ttk.Label(main_frame, text="Monitoring:").grid(row=2, column=2, sticky=tk.W, pady=5)
+        self.monitor_var = tk.BooleanVar(value=False)
+        self.monitor_btn = ttk.Checkbutton(
+            main_frame, 
+            text="Enable",
+            variable=self.monitor_var,
+            command=self.toggle_monitoring
+        )
+        self.monitor_btn.grid(row=2, column=3, sticky=tk.W, pady=5)
+        
         # Output Directory Selection
         ttk.Label(main_frame, text="Output Directory:").grid(row=3, column=0, sticky=tk.W, pady=5)
         self.output_dir_var = tk.StringVar(value=self.output_dir)
@@ -157,7 +168,21 @@ class AudioSamplerGUI:
         self.silence_value_label.grid(row=5, column=2, sticky=tk.W, pady=5)
         silence_scale.configure(command=self.update_silence_label)
         
-        # Setup Level Monitor Figure
+        # Single monitor controls section
+        monitor_frame = ttk.LabelFrame(main_frame, text="Monitor Controls", padding="5")
+        monitor_frame.grid(row=6, column=0, columnspan=3, sticky='ew', pady=5)
+        
+        # Single Monitor Enable Toggle
+        self.monitor_var = tk.BooleanVar(value=False)
+        self.monitor_toggle = ttk.Checkbutton(
+            monitor_frame,
+            text="Enable Monitoring",
+            variable=self.monitor_var,
+            command=self.toggle_monitoring
+        )
+        self.monitor_toggle.grid(row=0, column=0, padx=5)
+        
+        # Move level monitor figure to row 7
         self.fig = Figure(figsize=PLOT_SIZE, dpi=PLOT_DPI, facecolor=DARK_BG)
         self.ax = self.fig.add_subplot(111)
         self.ax.set_facecolor(DARKER_BG)
@@ -167,11 +192,11 @@ class AudioSamplerGUI:
         
         self.canvas = FigureCanvasTkAgg(self.fig, master=main_frame)
         self.canvas.draw()
-        self.canvas.get_tk_widget().grid(row=6, column=0, columnspan=3, pady=10)
+        self.canvas.get_tk_widget().grid(row=7, column=0, columnspan=3, pady=10)
         
         # Control Buttons - Only recording button now
         button_frame = ttk.Frame(main_frame, style='TFrame')
-        button_frame.grid(row=7, column=0, columnspan=3, pady=10)
+        button_frame.grid(row=8, column=0, columnspan=3, pady=10)
         
         self.record_button = ttk.Button(button_frame, text="Start Recording", 
                                       command=self.toggle_recording)
@@ -179,7 +204,7 @@ class AudioSamplerGUI:
         
         # Status bar
         self.status_text = tk.Text(main_frame, height=3, width=50, bg=DARKER_BG, fg=TEXT_COLOR)
-        self.status_text.grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+        self.status_text.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
         self.status_text.insert('1.0', "Ready")
         self.status_text.config(state='disabled')
     
@@ -337,3 +362,12 @@ class AudioSamplerGUI:
             except Exception as e:
                 print(f"Error closing stream: {e}")
         self.root.destroy()
+    
+    def toggle_monitoring(self):
+        """Toggle audio monitoring on/off"""
+        if self.monitor_var.get():
+            self.audio_handler.start_monitoring()
+            self.update_status("Monitoring enabled")
+        else:
+            self.audio_handler.stop_monitoring()
+            self.update_status("Monitoring disabled")
