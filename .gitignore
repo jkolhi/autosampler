@@ -7,3 +7,5 @@ build/
 *.pyc
 __pycache__/config.cpython-311.pyc
 __pycache__/gui.cpython-311.pyc
+settings.json
+__pycache__/audio_handler.cpython-311.pyc

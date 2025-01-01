@@ -14,9 +14,8 @@ class AudioHandler:
         self.stream = None
         self.monitoring = False
         self.current_samplerate = 48000
-        self.current_channels = None
-        self.channel_map = None
         self.device_index = None
+        self.channel_map = None
         
     def get_input_devices(self):
         """Get list of available input devices"""
@@ -49,17 +48,18 @@ class AudioHandler:
         self.channel_map = channel_map
         self.current_samplerate = samplerate
         
+        # Create duplex stream with system default output
         total_channels = max(channel_map) + 1 if channel_map else channels
-        self.stream = sd.InputStream(
-            device=device_index,
-            channels=total_channels,
+        self.stream = sd.Stream(
+            device=(device_index, sd.default.device[1]),  # Input device, default output
+            channels=(total_channels, 2),  # Input channels, stereo output
             callback=self.audio_callback,
             samplerate=samplerate
         )
         self.stream.start()
         return self.stream
 
-    def audio_callback(self, indata, frames, time, status):
+    def audio_callback(self, indata, outdata, frames, time, status):
         """Handle incoming audio data"""
         try:
             # Get selected channels
@@ -71,6 +71,15 @@ class AudioHandler:
             
             # Always store audio for recording
             self.audio_queue.put_nowait(data.copy())
+            
+            # Route to output if monitoring enabled
+            if self.monitoring:
+                if data.shape[1] == 1:  # Mono to stereo
+                    outdata[:] = np.column_stack((data, data))
+                else:  # Stereo as-is
+                    outdata[:] = data
+            else:
+                outdata.fill(0)  # Silence when not monitoring
             
         except Exception as e:
             debug_print(f"Callback error: {e}")
