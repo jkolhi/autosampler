@@ -8,6 +8,9 @@ import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.animation as animation
+import json
+import os
+from tkinter import messagebox
 
 from audio_handler import AudioHandler
 from recorder import AudioRecorder
@@ -19,65 +22,109 @@ class AudioSamplerGUI:
         self.root.title("Audio Auto Sampler")
         self.root.geometry("850x600")
         
-        # Initialize queues and handlers
+        # Initialize state
+        self.running = True  # Add running state flag
+        self.recording = False  # Add recording state flag
+        self.monitoring = False  # Add monitoring state flag
+        
+        # Load settings first
+        self.settings = self.load_settings()
+        self.output_dir = self.settings["output_dir"]
+        
+        # Initialize audio and GUI
         self.level_queue = queue.Queue()
         self.audio_handler = AudioHandler(self.level_queue)
         self.recorder = AudioRecorder(self.audio_handler, self.handle_recorder_callback)
         
-        # State flags
-        self.recording = False
-        self.running = True
-        self.output_dir = DEFAULT_OUTPUT_DIR
-        
-        # Setup GUI elements in correct order
+        # Setup GUI components
         self.setup_dark_theme()
-        self.main_frame = self.setup_gui()  # Store main_frame reference
-        self.setup_level_monitor()          # Now main_frame exists
+        self.main_frame = self.setup_gui()
+        self.setup_level_monitor()
         
-        # Start monitoring after delay
-        self.root.after(500, self.update_input_options)
+        # Start level monitoring immediately
+        self.start_monitoring()
+        
+        # Start level display updates
+        self.update_level_display()
+        
+        # Delayed initialization of saved settings
+        self.root.after(1000, self.delayed_init)
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
     
+    def delayed_init(self):
+        """Initialize audio devices and apply settings after delay"""
+        try:
+            # Update interface options first
+            self.update_input_options()
+            
+            # Set saved interface
+            if self.settings["interface"]:
+                self.interface_var.set(self.settings["interface"])
+                # Add small delay before setting input
+                self.root.after(500, self.restore_input_settings)
+                
+        except Exception as e:
+            debug_print(f"Error in delayed init: {e}")
+
+    def restore_input_settings(self):
+        """Restore input and mode settings"""
+        try:
+            # Update input options for selected interface
+            self.update_input_options()
+            
+            # Set saved input and mode
+            if self.settings["input"]:
+                self.input_var.set(self.settings["input"])
+            if self.settings["mode"]:
+                self.channel_var.set(self.settings["mode"])
+                
+            # Apply changes
+            self.on_selection_change()
+            
+        except Exception as e:
+            debug_print(f"Error restoring input settings: {e}")
+
     def on_selection_change(self, event=None):
         """Handle changes in interface, input, or mode selection"""
         was_monitoring = False
         
-        # Store monitoring state
         if hasattr(self, 'monitor_var') and self.monitor_var.get():
             was_monitoring = True
             self.audio_handler.stop_monitoring()
         
-        # Update device/channel selection
         self.restart_monitoring()
         
-        # Restore monitoring if it was active
         if was_monitoring:
             self.audio_handler.start_monitoring()
-            self.update_status("Monitoring resumed with new selection")
+        
+        # Save settings after change
+        self.save_settings()
     
     def start_monitoring(self):
-        """Start audio monitoring"""
+        """Start or restart audio input stream"""
         try:
             device = self.get_selected_device()
             if not device:
-                self.update_status("Error: No audio device selected")
                 return
-            
+                
             channels = self.get_input_channels()
-            print(f"Starting monitoring with device {device['index']} and channels {channels}")
-            
-            self.stream = self.audio_handler.create_input_stream(
+            self.audio_handler.create_stream(
                 device['index'],
                 len(channels),
                 device['samplerate'],
                 channels
             )
-            self.stream.start()
-            self.update_status(f"Monitoring audio levels (channels: {channels})")
+            self.update_status("Audio stream started")
+            
         except Exception as e:
-            self.update_status(f"Error: {str(e)}")
-            print(f"Error in start_monitoring: {e}")
-    
+            self.update_status(f"Stream error: {e}")
+
+    def stop_monitoring(self):
+        """Stop audio monitoring"""
+        self.monitoring = False
+        self.audio_handler.stop_stream()
+        self.update_status("Monitoring stopped")
+
     def restart_monitoring(self):
         """Restart audio monitoring with new settings"""
         if hasattr(self, 'stream'):
@@ -230,6 +277,17 @@ class AudioSamplerGUI:
         self.status_text.insert('1.0', "Ready")
         self.status_text.config(state='disabled')
         
+        # Apply saved settings
+        if self.settings["interface"]:
+            self.interface_var.set(self.settings["interface"])
+            self.update_input_options()
+        if self.settings["input"]:
+            self.input_var.set(self.settings["input"])
+        self.channel_var.set(self.settings["mode"])
+        self.threshold_var.set(self.settings["threshold"])
+        self.silence_timeout_var.set(self.settings["silence_timeout"])
+        self.output_dir_var.set(self.settings["output_dir"])
+        
         return main_frame  # Return the main frame reference
     
     def update_input_options(self, event=None):
@@ -295,37 +353,36 @@ class AudioSamplerGUI:
     
     def setup_level_monitor(self):
         """Setup the level monitoring display"""
-        # Initialize level data
+        # Initialize level data array
         self.level_data = np.zeros(LEVEL_HISTORY)
         
-        # Configure plot
+        # Create figure and axis
         self.fig = Figure(figsize=PLOT_SIZE, dpi=PLOT_DPI, facecolor=DARK_BG)
         self.ax = self.fig.add_subplot(111)
         self.ax.set_facecolor(DARKER_BG)
         
-        # Set Y-axis limits and ticks
+        # Configure axis limits and style
         self.ax.set_ylim(LEVEL_MIN, LEVEL_MAX)
         self.ax.set_yticks(np.linspace(LEVEL_MIN, LEVEL_MAX, 5))
-        
-        # Configure grid
         self.ax.grid(True, color=TEXT_COLOR, alpha=0.2)
         self.ax.tick_params(colors=TEXT_COLOR)
         
-        # Style plot edges
-        for spine in self.ax.spines.values():
-            spine.set_edgecolor(TEXT_COLOR)
+        # Create x-axis data once
+        self.time_data = np.arange(LEVEL_HISTORY)
         
-        # Create level line
+        # Create level line with proper dimensions
         self.level_line, = self.ax.plot(
-            range(LEVEL_HISTORY),
+            self.time_data,
             self.level_data,
             color='cyan',
             linewidth=1
         )
         
-        # Add threshold line
-        self.threshold_line = self.ax.axhline(
-            y=DEFAULT_THRESHOLD,
+        # Create threshold line with matching dimensions
+        threshold_data = np.full(LEVEL_HISTORY, self.threshold_var.get())
+        self.threshold_line, = self.ax.plot(
+            self.time_data,
+            threshold_data,
             color='red',
             linestyle='--',
             alpha=0.5
@@ -335,33 +392,23 @@ class AudioSamplerGUI:
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.main_frame)
         self.canvas.draw()
         self.canvas.get_tk_widget().grid(row=7, column=0, columnspan=3, pady=10)
-        
-        # Start level updates
-        self.root.after(PLOT_UPDATE_INTERVAL, self.update_level_display)
-    
+
     def update_level_display(self):
-        """Update the level monitor display"""
+        """Update level meter display"""
         try:
-            # Update level data from queue
-            try:
-                while not self.level_queue.empty():
-                    self.level_data = np.roll(self.level_data, -1)
-                    self.level_data[-1] = self.level_queue.get_nowait()
-                
-                # Update plot lines
-                self.level_line.set_ydata(self.level_data)
-                self.threshold_line.set_ydata([self.threshold_var.get()] * 2)
-                self.canvas.draw_idle()
-                
-            except queue.Empty:
-                pass
+            while not self.audio_handler.level_queue.empty():
+                self.level_data = np.roll(self.level_data, -1)
+                self.level_data[-1] = self.audio_handler.level_queue.get_nowait()
             
-            # Schedule next update if running
-            if self.running:
-                self.root.after(PLOT_UPDATE_INTERVAL, self.update_level_display)
-                
+            self.level_line.set_ydata(self.level_data)
+            self.threshold_line.set_ydata([self.threshold_var.get()] * LEVEL_HISTORY)
+            self.canvas.draw_idle()
+            
         except Exception as e:
-            print(f"Error updating level display: {e}")
+            debug_print(f"Level display error: {e}")
+        
+        if self.running:
+            self.root.after(PLOT_UPDATE_INTERVAL, self.update_level_display)
     
     def update_status(self, message):
         """Update the status display"""
@@ -371,20 +418,23 @@ class AudioSamplerGUI:
         self.status_text.config(state='disabled')
         self.status_text.see(tk.END)
     
-    def update_silence_label(self, value):
-        """Update the silence duration label when the slider moves"""
-        self.silence_value_label.configure(text=f"{float(value):.1f} sec")
+    def update_silence_label(self, value=None):
+        """Update silence timeout display"""
+        timeout = self.silence_timeout_var.get()
+        self.silence_value_label.config(text=f"{timeout:.1f} sec")
         if hasattr(self, 'recorder'):
-            self.recorder.silence_timeout = float(value)
+            self.recorder.silence_timeout = timeout
+        self.save_settings()
     
     def browse_output_dir(self):
-        """Open directory browser dialog"""
+        """Browse for output directory"""
         directory = filedialog.askdirectory()
         if directory:
-            self.output_dir_var.set(directory)
             self.output_dir = directory
-            if hasattr(self, 'recorder'):
-                self.recorder.output_dir = directory
+            self.output_dir_var.set(directory)
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+            self.save_settings()
     
     def toggle_recording(self):
         """Toggle recording on/off"""
@@ -417,6 +467,7 @@ class AudioSamplerGUI:
     
     def on_closing(self):
         """Cleanup when closing the window"""
+        self.save_settings()
         self.running = False
         self.recording = False
         if hasattr(self, 'recorder'):
@@ -430,34 +481,61 @@ class AudioSamplerGUI:
         self.root.destroy()
     
     def toggle_monitoring(self):
-        """Toggle audio monitoring on/off"""
-        if self.monitor_var.get():
-            self.audio_handler.start_monitoring()
-            self.update_status("Monitoring enabled")
-        else:
-            self.audio_handler.stop_monitoring()
-            self.update_status("Monitoring disabled")
+        """Toggle audio monitoring state only"""
+        self.audio_handler.monitoring = self.monitor_var.get()
+        state = "enabled" if self.monitor_var.get() else "disabled"
+        self.update_status(f"Monitoring {state}")
 
     def update_threshold(self, value=None):
         """Update threshold value and display"""
+        threshold = self.threshold_var.get()
+        self.threshold_value_label.config(text=f"{threshold:.3f}")
+        if hasattr(self, 'threshold_line'):
+            self.threshold_line.set_ydata([threshold, threshold])
+            self.canvas.draw_idle()
+        if hasattr(self, 'recorder'):
+            self.recorder.threshold = threshold
+        self.save_settings()
+
+    def load_settings(self):
+        """Load settings from file"""
         try:
-            # Get current threshold value
-            threshold = self.threshold_var.get()
-            
-            # Update threshold label
-            self.threshold_value_label.config(text=f"{threshold:.3f}")
-            
-            # Update threshold line in plot if it exists
-            if hasattr(self, 'threshold_line'):
-                self.threshold_line.set_ydata([threshold, threshold])
-                self.canvas.draw_idle()
-            
-            # Update recorder threshold
-            if hasattr(self, 'recorder'):
-                self.recorder.threshold = threshold
-                
-            # Update status
-            self.update_status(f"Threshold set to {threshold:.3f}")
-            
+            if os.path.exists(SETTINGS_FILE):
+                with open(SETTINGS_FILE, 'r') as f:
+                    return {**DEFAULT_SETTINGS, **json.load(f)}
         except Exception as e:
-            print(f"Error updating threshold: {e}")
+            print(f"Error loading settings: {e}")
+        return DEFAULT_SETTINGS.copy()
+
+    def save_settings(self):
+        """Save current settings to file"""
+        try:
+            current_settings = {
+                "interface": self.interface_var.get(),
+                "input": self.input_var.get(),
+                "mode": self.channel_var.get(),
+                "threshold": self.threshold_var.get(),
+                "silence_timeout": self.silence_timeout_var.get(),
+                "output_dir": self.output_dir
+            }
+            with open(SETTINGS_FILE, 'w') as f:
+                json.dump(current_settings, f, indent=2)
+            debug_print("Settings saved")
+        except Exception as e:
+            debug_print(f"Error saving settings: {e}")
+
+    def prompt_output_directory(self):
+        """Prompt user to select output directory"""
+        message = "Output directory not found. Please select a directory for recordings."
+        messagebox.showinfo("Select Directory", message)
+        directory = filedialog.askdirectory()
+        if directory:
+            self.output_dir = directory
+            self.settings["output_dir"] = directory
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+        else:
+            # Use default if user cancels
+            self.output_dir = DEFAULT_OUTPUT_DIR
+            if not os.path.exists(DEFAULT_OUTPUT_DIR):
+                os.makedirs(DEFAULT_OUTPUT_DIR)
