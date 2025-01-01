@@ -2,7 +2,7 @@
   "interface": "6: Scarlett 18i20 USB",
   "input": "Inputs 5/6 (Stereo)",
   "mode": "Stereo",
-  "threshold": 0.09296587030716723,
-  "silence_timeout": 1.0,
+  "threshold": 0.35694197952218426,
+  "silence_timeout": 2.1737201365187717,
   "output_dir": "/Users/jk"
 }

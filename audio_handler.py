@@ -9,7 +9,7 @@ from config import debug_print
 
 class AudioHandler:
     def __init__(self, level_queue):
-        self.level_queue = queue.Queue()
+        self.level_queue = level_queue
         self.audio_queue = queue.Queue()
         self.stream = None
         self.monitoring = False
@@ -39,48 +39,53 @@ class AudioHandler:
         return input_devices
     
     def create_stream(self, device_index, channels, samplerate, channel_map=None):
-        """Create and start audio stream"""
-        if self.stream:
-            self.stream.stop()
-            self.stream.close()
+        try:
+            if self.stream:
+                self.stream.stop()
+                self.stream.close()
             
-        self.device_index = device_index
-        self.channel_map = channel_map
-        self.current_samplerate = samplerate
-        
-        # Create duplex stream with system default output
-        total_channels = max(channel_map) + 1 if channel_map else channels
-        self.stream = sd.Stream(
-            device=(device_index, sd.default.device[1]),  # Input device, default output
-            channels=(total_channels, 2),  # Input channels, stereo output
-            callback=self.audio_callback,
-            samplerate=samplerate
-        )
-        self.stream.start()
-        return self.stream
+            self.device_index = device_index
+            self.channel_map = channel_map
+            self.current_samplerate = samplerate
+            
+            # Calculate total channels needed
+            total_channels = max(channel_map) + 1 if channel_map else channels
+            
+            # Create duplex stream
+            self.stream = sd.Stream(
+                device=(device_index, sd.default.device[1]),  # Input, default output
+                channels=(total_channels, 2),  # Input channels, stereo output
+                callback=self.audio_callback,
+                samplerate=samplerate
+            )
+            self.stream.start()
+            return self.stream
+            
+        except Exception as e:
+            debug_print(f"Stream creation error: {e}")
+            raise
 
     def audio_callback(self, indata, outdata, frames, time, status):
-        """Handle incoming audio data"""
         try:
-            # Get selected channels
+            # Get mapped channels
             data = indata[:, self.channel_map] if self.channel_map else indata
             
-            # Always update level
+            # Update level meter
             level = float(np.max(np.abs(data)))
             self.level_queue.put_nowait(level)
             
-            # Always store audio for recording
+            # Store audio for recording
             self.audio_queue.put_nowait(data.copy())
             
-            # Route to output if monitoring enabled
+            # Route to output if monitoring
             if self.monitoring:
                 if data.shape[1] == 1:  # Mono to stereo
                     outdata[:] = np.column_stack((data, data))
-                else:  # Stereo as-is
-                    outdata[:] = data
+                else:  # Stereo as-is or first two channels
+                    outdata[:, :2] = data[:, :2]
             else:
-                outdata.fill(0)  # Silence when not monitoring
-            
+                outdata.fill(0)
+                
         except Exception as e:
             debug_print(f"Callback error: {e}")
 

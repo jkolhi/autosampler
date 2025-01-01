@@ -353,24 +353,23 @@ class AudioSamplerGUI:
     
     def setup_level_monitor(self):
         """Setup the level monitoring display"""
-        # Initialize level data array
+        # Initialize data arrays with correct shapes
         self.level_data = np.zeros(LEVEL_HISTORY)
+        self.time_data = np.arange(LEVEL_HISTORY)
         
-        # Create figure and axis
+        # Setup figure
         self.fig = Figure(figsize=PLOT_SIZE, dpi=PLOT_DPI, facecolor=DARK_BG)
         self.ax = self.fig.add_subplot(111)
         self.ax.set_facecolor(DARKER_BG)
         
-        # Configure axis limits and style
+        # Configure axis
         self.ax.set_ylim(LEVEL_MIN, LEVEL_MAX)
+        self.ax.set_xlim(0, LEVEL_HISTORY)
         self.ax.set_yticks(np.linspace(LEVEL_MIN, LEVEL_MAX, 5))
         self.ax.grid(True, color=TEXT_COLOR, alpha=0.2)
         self.ax.tick_params(colors=TEXT_COLOR)
         
-        # Create x-axis data once
-        self.time_data = np.arange(LEVEL_HISTORY)
-        
-        # Create level line with proper dimensions
+        # Create level line
         self.level_line, = self.ax.plot(
             self.time_data,
             self.level_data,
@@ -378,11 +377,11 @@ class AudioSamplerGUI:
             linewidth=1
         )
         
-        # Create threshold line with matching dimensions
-        threshold_data = np.full(LEVEL_HISTORY, self.threshold_var.get())
+        # Create threshold line
+        self.threshold_data = np.full(LEVEL_HISTORY, self.threshold_var.get())
         self.threshold_line, = self.ax.plot(
             self.time_data,
-            threshold_data,
+            self.threshold_data,
             color='red',
             linestyle='--',
             alpha=0.5
@@ -394,19 +393,27 @@ class AudioSamplerGUI:
         self.canvas.get_tk_widget().grid(row=7, column=0, columnspan=3, pady=10)
 
     def update_level_display(self):
-        """Update level meter display"""
+        """Update the level monitor display"""
         try:
+            # Update level data
             while not self.audio_handler.level_queue.empty():
                 self.level_data = np.roll(self.level_data, -1)
                 self.level_data[-1] = self.audio_handler.level_queue.get_nowait()
             
+            # Update threshold data
+            self.threshold_data.fill(self.threshold_var.get())
+            
+            # Update plot data
             self.level_line.set_ydata(self.level_data)
-            self.threshold_line.set_ydata([self.threshold_var.get()] * LEVEL_HISTORY)
+            self.threshold_line.set_ydata(self.threshold_data)
+            
+            # Redraw canvas
             self.canvas.draw_idle()
             
         except Exception as e:
             debug_print(f"Level display error: {e}")
         
+        # Schedule next update if running
         if self.running:
             self.root.after(PLOT_UPDATE_INTERVAL, self.update_level_display)
     
