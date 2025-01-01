@@ -37,14 +37,14 @@ def debug_print(*args, **kwargs):
         print(*args, **kwargs)
 
 # Settings file path
-SETTINGS_FILE = "settings.json"
+#SETTINGS_FILE = "settings.json"
 
 # Default settings
-DEFAULT_SETTINGS = {
-    "interface": "",
-    "input": "",
-    "mode": "Mono",
-    "threshold": DEFAULT_THRESHOLD,
-    "silence_timeout": DEFAULT_SILENCE_TIMEOUT,
-    "output_dir": DEFAULT_OUTPUT_DIR
-}
+# DEFAULT_SETTINGS = {
+#     "interface": "",
+#     "input": "",
+#     "mode": "Mono",
+#     "threshold": DEFAULT_THRESHOLD,
+#     "silence_timeout": DEFAULT_SILENCE_TIMEOUT,
+#     "output_dir": DEFAULT_OUTPUT_DIR
+# }

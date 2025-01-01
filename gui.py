@@ -17,40 +17,50 @@ from recorder import AudioRecorder
 from config import *
 
 class AudioSamplerGUI:
-    def __init__(self, root):
+    def __init__(self, root, settings, settings_file):
+        # Core initialization
         self.root = root
-        self.root.title("Audio Auto Sampler")
-        self.root.geometry("850x600")
+        self.settings = settings
+        self.settings_file = settings_file
         
-        # Initialize state
-        self.running = True  # Add running state flag
-        self.recording = False  # Add recording state flag
-        self.monitoring = False  # Add monitoring state flag
+        # Initialize settings values
+        self.output_dir = settings['output_dir']
         
-        # Load settings first
-        self.settings = self.load_settings()
-        self.output_dir = self.settings["output_dir"]
-        
-        # Initialize audio and GUI
+        # Create queues first
         self.level_queue = queue.Queue()
-        self.audio_handler = AudioHandler(self.level_queue)
-        self.recorder = AudioRecorder(self.audio_handler, self.handle_recorder_callback)
         
-        # Setup GUI components
+        # Initialize audio components with queue
+        self.audio_handler = AudioHandler(self.level_queue)
+        
+        # Create main frame
+        self.main_frame = ttk.Frame(self.root, padding="5")
+        self.main_frame.grid(row=0, column=0, sticky="nsew")
+        
+        # Initialize GUI variables
+        self.running = True
+        self.recording = False
+        self.monitoring = False
+        
+        # Setup rest of GUI
         self.setup_dark_theme()
-        self.main_frame = self.setup_gui()
+        self.setup_gui()
         self.setup_level_monitor()
         
-        # Start level monitoring immediately
-        self.start_monitoring()
+        # Initialize recorder
+        self.recorder = AudioRecorder(self.audio_handler, self.handle_recorder_callback)
         
-        # Start level display updates
+        # Start level monitoring
         self.update_level_display()
-        
-        # Delayed initialization of saved settings
-        self.root.after(1000, self.delayed_init)
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-    
+
+    def toggle_monitoring(self):
+        """Toggle audio monitoring state"""
+        if self.monitor_var.get():
+            self.audio_handler.start_monitoring()
+            self.update_status("Monitoring enabled")
+        else:
+            self.audio_handler.stop_monitoring()
+            self.update_status("Monitoring disabled")    
+
     def delayed_init(self):
         """Initialize audio devices and apply settings after delay"""
         try:
@@ -147,6 +157,13 @@ class AudioSamplerGUI:
         self.root.configure(bg=DARK_BG)
         
     def setup_gui(self):
+        import matplotlib
+        matplotlib.use('TkAgg')
+        
+        main_frame = ttk.Frame(self.root, padding="10", style='TFrame')
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Rest of setup_gui implementation remains the same...
         main_frame = ttk.Frame(self.root, padding="10", style='TFrame')
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
@@ -353,38 +370,52 @@ class AudioSamplerGUI:
     
     def setup_level_monitor(self):
         """Setup the level monitoring display"""
-        # Initialize data arrays with correct shapes
+        # Initialize data structures
         self.level_data = np.zeros(LEVEL_HISTORY)
         self.time_data = np.arange(LEVEL_HISTORY)
         
-        # Setup figure
-        self.fig = Figure(figsize=PLOT_SIZE, dpi=PLOT_DPI, facecolor=DARK_BG)
+        # Create and configure figure
+        self.fig = Figure(figsize=PLOT_SIZE, dpi=PLOT_DPI)
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_facecolor(DARKER_BG)
         
-        # Configure axis
+        # Set plot styles
+        self.ax.set_facecolor(DARKER_BG)
+        self.fig.patch.set_facecolor(DARK_BG)
+        self.ax.tick_params(colors=TEXT_COLOR)
+        for spine in self.ax.spines.values():
+            spine.set_edgecolor(TEXT_COLOR)
+        
+        # Configure axes
         self.ax.set_ylim(LEVEL_MIN, LEVEL_MAX)
         self.ax.set_xlim(0, LEVEL_HISTORY)
-        self.ax.set_yticks(np.linspace(LEVEL_MIN, LEVEL_MAX, 5))
-        self.ax.grid(True, color=TEXT_COLOR, alpha=0.2)
-        self.ax.tick_params(colors=TEXT_COLOR)
+        self.ax.grid(True, color='#666666', alpha=0.3)
         
-        # Create level line
+        # Create level meter line
         self.level_line, = self.ax.plot(
             self.time_data,
             self.level_data,
-            color='cyan',
-            linewidth=1
+            color='#00ff00',
+            linewidth=1.5
         )
         
         # Create threshold line
-        self.threshold_data = np.full(LEVEL_HISTORY, self.threshold_var.get())
+        threshold = self.threshold_var.get()
         self.threshold_line, = self.ax.plot(
-            self.time_data,
-            self.threshold_data,
+            [0, LEVEL_HISTORY],
+            [threshold, threshold],
             color='red',
             linestyle='--',
-            alpha=0.5
+            alpha=0.7
+        )
+        
+        # Add threshold value label
+        self.ax.text(
+            LEVEL_HISTORY - 10, 
+            threshold + 0.02,
+            f'Threshold: {threshold:.3f}',
+            color='red',
+            alpha=0.7,
+            horizontalalignment='right'
         )
         
         # Setup canvas
@@ -394,29 +425,73 @@ class AudioSamplerGUI:
 
     def update_level_display(self):
         """Update the level monitor display"""
+        if not self.running:
+            return
+            
         try:
-            # Update level data
-            while not self.audio_handler.level_queue.empty():
-                self.level_data = np.roll(self.level_data, -1)
-                self.level_data[-1] = self.audio_handler.level_queue.get_nowait()
+            # Get all available levels from queue
+            updated = False
+            while not self.level_queue.empty():
+                try:
+                    # Roll the data array and add new value
+                    self.level_data = np.roll(self.level_data, -1)
+                    self.level_data[-1] = self.level_queue.get_nowait()
+                    updated = True
+                except queue.Empty:
+                    break
             
-            # Update threshold data
-            self.threshold_data.fill(self.threshold_var.get())
-            
-            # Update plot data
-            self.level_line.set_ydata(self.level_data)
-            self.threshold_line.set_ydata(self.threshold_data)
-            
-            # Redraw canvas
-            self.canvas.draw_idle()
-            
+            if updated:
+                # Update level line data
+                self.level_line.set_ydata(self.level_data)
+                
+                # Update threshold line
+                threshold = self.threshold_var.get()
+                self.threshold_line.set_ydata([threshold, threshold])
+                
+                # Redraw canvas
+                self.canvas.draw_idle()
+                
         except Exception as e:
             debug_print(f"Level display error: {e}")
         
-        # Schedule next update if running
+        # Schedule next update
         if self.running:
             self.root.after(PLOT_UPDATE_INTERVAL, self.update_level_display)
-    
+
+    def update_threshold(self, value=None):
+        """Update threshold value and display"""
+        try:
+            threshold = self.threshold_var.get()
+            self.threshold_value_label.config(text=f"{threshold:.3f}")
+            
+            if hasattr(self, 'threshold_line'):
+                # Update threshold line position
+                self.threshold_line.set_ydata([threshold, threshold])
+                
+                # Clear old text annotations
+                for artist in self.ax.texts:
+                    artist.remove()
+                
+                # Add new threshold label
+                self.ax.text(
+                    LEVEL_HISTORY - 10,
+                    threshold + 0.02,
+                    f'Threshold: {threshold:.3f}',
+                    color='red',
+                    alpha=0.7,
+                    horizontalalignment='right'
+                )
+                
+                self.canvas.draw_idle()
+                
+            if hasattr(self, 'recorder'):
+                self.recorder.threshold = threshold
+                
+            self.save_settings()
+            
+        except Exception as e:
+            debug_print(f"Error updating threshold: {e}")
+
     def update_status(self, message):
         """Update the status display"""
         self.status_text.config(state='normal')
@@ -487,23 +562,6 @@ class AudioSamplerGUI:
                 print(f"Error closing stream: {e}")
         self.root.destroy()
     
-    def toggle_monitoring(self):
-        """Toggle audio monitoring state only"""
-        self.audio_handler.monitoring = self.monitor_var.get()
-        state = "enabled" if self.monitor_var.get() else "disabled"
-        self.update_status(f"Monitoring {state}")
-
-    def update_threshold(self, value=None):
-        """Update threshold value and display"""
-        threshold = self.threshold_var.get()
-        self.threshold_value_label.config(text=f"{threshold:.3f}")
-        if hasattr(self, 'threshold_line'):
-            self.threshold_line.set_ydata([threshold, threshold])
-            self.canvas.draw_idle()
-        if hasattr(self, 'recorder'):
-            self.recorder.threshold = threshold
-        self.save_settings()
-
     def load_settings(self):
         """Load settings from file"""
         try:
@@ -525,7 +583,7 @@ class AudioSamplerGUI:
                 "silence_timeout": self.silence_timeout_var.get(),
                 "output_dir": self.output_dir
             }
-            with open(SETTINGS_FILE, 'w') as f:
+            with open(self.settings_file, 'w') as f:
                 json.dump(current_settings, f, indent=2)
             debug_print("Settings saved")
         except Exception as e:

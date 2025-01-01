@@ -70,8 +70,9 @@ class AudioHandler:
             # Get mapped channels
             data = indata[:, self.channel_map] if self.channel_map else indata
             
-            # Update level meter
-            level = float(np.max(np.abs(data)))
+            # Update level meter (calculate RMS value for smoother metering)
+            rms = np.sqrt(np.mean(data**2))
+            level = min(float(rms), 1.0)  # Clip to max 1.0
             self.level_queue.put_nowait(level)
             
             # Store audio for recording
@@ -81,13 +82,14 @@ class AudioHandler:
             if self.monitoring:
                 if data.shape[1] == 1:  # Mono to stereo
                     outdata[:] = np.column_stack((data, data))
-                else:  # Stereo as-is or first two channels
-                    outdata[:, :2] = data[:, :2]
+                else:  # Stereo as-is
+                    outdata[:] = data
             else:
                 outdata.fill(0)
                 
         except Exception as e:
-            debug_print(f"Callback error: {e}")
+            print(f"Callback error: {e}")
+            outdata.fill(0)
 
     def save_recording(self, chunks, output_dir):
         """Save recorded audio chunks to a WAV file"""
